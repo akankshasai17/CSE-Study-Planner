@@ -85,10 +85,9 @@ class CSEStudyPlannerTestCase(unittest.TestCase):
         get_resp = self.client.get('/api/subjects')
         self.assertEqual(get_resp.status_code, 200)
         subjects = json.loads(get_resp.data)
-        self.assertEqual(len(subjects), 7)
-        added_sub = next(s for s in subjects if s['id'] == sub_id)
-        self.assertEqual(added_sub['name'], 'Data Structures and Algorithms')
-        self.assertEqual(added_sub['attendance_pct'], 100.0) # no classes yet
+        self.assertEqual(len(subjects), 1)
+        self.assertEqual(subjects[0]['name'], 'Data Structures and Algorithms')
+        self.assertEqual(subjects[0]['attendance_pct'], 100.0) # no classes yet
         
         # Update attendance
         att_resp = self.client.post(f'/api/subjects/{sub_id}/attendance', json={
@@ -100,8 +99,7 @@ class CSEStudyPlannerTestCase(unittest.TestCase):
         # Verify updated attendance percentage (8 / 10 = 80%)
         get_resp2 = self.client.get('/api/subjects')
         subjects2 = json.loads(get_resp2.data)
-        added_sub2 = next(s for s in subjects2 if s['id'] == sub_id)
-        self.assertEqual(added_sub2['attendance_pct'], 80.0)
+        self.assertEqual(subjects2[0]['attendance_pct'], 80.0)
         
         # Dashboard warning check (warning if attendance is below 75%)
         # Let's drop attendance to 7/10 = 70%
@@ -138,9 +136,8 @@ class CSEStudyPlannerTestCase(unittest.TestCase):
         # Get tasks
         get_resp = self.client.get('/api/tasks')
         tasks = json.loads(get_resp.data)
-        self.assertEqual(len(tasks), 25)
-        added_task = next(t for t in tasks if t['id'] == task_id)
-        self.assertFalse(added_task['completed'])
+        self.assertEqual(len(tasks), 1)
+        self.assertFalse(tasks[0]['completed'])
         
         # Verify dashboard progress % is 0%
         dash_resp = self.client.get('/api/dashboard')
@@ -155,10 +152,10 @@ class CSEStudyPlannerTestCase(unittest.TestCase):
         })
         self.assertEqual(complete_resp.status_code, 200)
         
-        # Verify dashboard progress % is 4% (1 completed out of 25)
+        # Verify dashboard progress % is 100%
         dash_resp2 = self.client.get('/api/dashboard')
         dash_data2 = json.loads(dash_resp2.data)
-        self.assertEqual(dash_data2['progress_percentage'], 4)
+        self.assertEqual(dash_data2['progress_percentage'], 100)
         
     # --- DSA Problems Tracker Tests ---
     

@@ -138,9 +138,6 @@ def create_user(username, name, password_hash):
         if not res:
             return None
         user_id = res[0]["id"]
-        
-        # Auto-seed core subjects and tasks
-        seed_core_subjects(user_id)
         return user_id
     except Exception:
         return None
