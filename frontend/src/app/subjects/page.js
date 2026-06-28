@@ -194,6 +194,16 @@ export default function SubjectsPage() {
     }
   };
 
+  const importCoreSyllabus = async () => {
+    try {
+      const res = await fetch('/api/subjects/seed', { method: 'POST' });
+      if (!res.ok) throw new Error('Failed to seed core subjects.');
+      fetchSubjectsAndTasks();
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
   // Toggle syllabus checklist tasks directly from the subject card
   const toggleTaskCompletion = async (task) => {
     try {
@@ -238,13 +248,22 @@ export default function SubjectsPage() {
           <h1 className="text-2xl font-black tracking-tight">CSE Subjects</h1>
           <p className="text-xs text-muted-foreground mt-0.5">Manage your semester modules and track lecture attendance levels</p>
         </div>
-        <button
-          onClick={openAddModal}
-          className="px-4 py-2.5 bg-primary text-primary-foreground hover:bg-opacity-95 font-semibold rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-primary/10 self-start sm:self-auto"
-        >
-          <Plus className="h-4 w-4" />
-          <span>Add Subject</span>
-        </button>
+        <div className="flex gap-2.5 self-start sm:self-auto">
+          <button
+            onClick={importCoreSyllabus}
+            className="px-4 py-2.5 bg-secondary text-secondary-foreground hover:bg-muted border border-border/80 font-bold rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+          >
+            <CalendarCheck className="h-4 w-4" />
+            <span>Import Core Syllabus</span>
+          </button>
+          <button
+            onClick={openAddModal}
+            className="px-4 py-2.5 bg-primary text-primary-foreground hover:bg-opacity-95 font-semibold rounded-xl text-sm flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-primary/10"
+          >
+            <Plus className="h-4 w-4" />
+            <span>Add Subject</span>
+          </button>
+        </div>
       </div>
 
       {/* Grid of Subjects */}

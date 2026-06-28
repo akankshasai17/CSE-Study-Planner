@@ -242,6 +242,34 @@ def subject_detail(subject_id):
         db.delete_subject(user_id, subject_id)
         return jsonify({'message': 'Subject deleted successfully.'}), 200
 
+@app.route('/api/subjects/seed', methods=['POST'])
+@login_required
+def seed_subjects():
+    user_id = session['user_id']
+    existing_subjects = db.get_subjects(user_id)
+    existing_codes = {s['code'].strip().upper() for s in existing_subjects}
+    
+    for sub in db.CORE_SUBJECTS:
+        if sub["code"].strip().upper() in existing_codes:
+            continue
+            
+        with db.db_session() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO subjects (user_id, name, code, color, attended_classes, total_classes) VALUES (?, ?, ?, ?, ?, ?)",
+                (user_id, sub["name"], sub["code"], sub["color"], 0, 0)
+            )
+            subject_id = cursor.lastrowid
+            
+            for topic in sub["topics"]:
+                cursor.execute(
+                    "INSERT INTO tasks (user_id, title, subject_id, priority, due_date, completed, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (user_id, topic, subject_id, 'Medium', None, 0, None)
+                )
+            conn.commit()
+            
+    return jsonify({'message': 'Core CSE syllabus seeded successfully.'}), 200
+
 @app.route('/api/subjects/<int:subject_id>/attendance', methods=['POST'])
 @login_required
 def log_attendance(subject_id):
