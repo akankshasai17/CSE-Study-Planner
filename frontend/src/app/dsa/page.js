@@ -16,40 +16,28 @@ import {
   Trash,
   CheckCircle,
   CircleCheck,
-  Circle
+  Circle,
+  Terminal,
+  Play,
+  RotateCcw,
+  X,
+  FileCode,
+  AlertTriangle
 } from 'lucide-react';
-
-const RECOMMENDED_QUESTIONS = {
-  Easy: [
-    { title: "Two Sum", platform: "LeetCode" },
-    { title: "Valid Parentheses", platform: "LeetCode" },
-    { title: "Merge Two Sorted Lists", platform: "LeetCode" },
-    { title: "Best Time to Buy and Sell Stock", platform: "LeetCode" },
-    { title: "Reverse Linked List", platform: "LeetCode" },
-  ],
-  Medium: [
-    { title: "3Sum", platform: "LeetCode" },
-    { title: "Container With Most Water", platform: "LeetCode" },
-    { title: "Longest Substring Without Repeating Characters", platform: "LeetCode" },
-    { title: "Group Anagrams", platform: "LeetCode" },
-    { title: "Binary Tree Level Order Traversal", platform: "LeetCode" },
-    { title: "Number of Islands", platform: "LeetCode" },
-  ],
-  Hard: [
-    { title: "Median of Two Sorted Arrays", platform: "LeetCode" },
-    { title: "Merge k Sorted Lists", platform: "LeetCode" },
-    { title: "Trapping Rain Water", platform: "LeetCode" },
-    { title: "Edit Distance", platform: "LeetCode" },
-    { title: "N-Queens", platform: "LeetCode" },
-  ]
-};
 
 export default function DSATracker() {
   const [dsaData, setDsaData] = useState(null);
+  const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Form State
+  // Coding Workspace State
+  const [activeCodeQuestion, setActiveCodeQuestion] = useState(null); // the question object
+  const [userCode, setUserCode] = useState('');
+  const [evaluating, setEvaluating] = useState(false);
+  const [evalResult, setEvalResult] = useState(null);
+
+  // Custom Log Form State
   const [formData, setFormData] = useState({
     title: '',
     platform: 'LeetCode',
@@ -60,10 +48,20 @@ export default function DSATracker() {
 
   const fetchDsaData = async () => {
     try {
-      const res = await fetch('/api/dsa');
-      if (!res.ok) throw new Error('Failed to load DSA problems.');
-      const data = await res.json();
-      setDsaData(data);
+      const [resDsa, resQuestions] = await Promise.all([
+        fetch('/api/dsa'),
+        fetch('/api/dsa/questions')
+      ]);
+
+      if (!resDsa.ok || !resQuestions.ok) {
+        throw new Error('Failed to load DSA data.');
+      }
+
+      const dsaJson = await resDsa.json();
+      const questionsJson = await resQuestions.json();
+
+      setDsaData(dsaJson);
+      setQuestions(questionsJson);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -115,33 +113,6 @@ export default function DSATracker() {
     }
   };
 
-  const logRecommendedSolve = async (title, difficulty, platform) => {
-    setError('');
-    const payload = {
-      title,
-      platform,
-      difficulty,
-      solved_date: new Date().toISOString().split('T')[0]
-    };
-
-    try {
-      const res = await fetch('/api/dsa', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || 'Failed to log problem.');
-      }
-      
-      fetchDsaData();
-    } catch (err) {
-      setError(err.message);
-    }
-  };
-
   const deleteProblem = async (problemId) => {
     if (!confirm('Remove this problem from your solved log?')) return;
     try {
@@ -162,6 +133,54 @@ export default function DSATracker() {
     );
   };
 
+  // Open Workspace
+  const openCodingWorkspace = (q) => {
+    setActiveCodeQuestion(q);
+    setUserCode(q.starter_code);
+    setEvalResult(null);
+  };
+
+  // Reset starter code
+  const resetStarterCode = () => {
+    if (activeCodeQuestion) {
+      setUserCode(activeCodeQuestion.starter_code);
+      setEvalResult(null);
+    }
+  };
+
+  // Run user code against test cases in the backend
+  const runCodeSolution = async () => {
+    if (!activeCodeQuestion) return;
+    setEvaluating(true);
+    setEvalResult(null);
+
+    try {
+      const res = await fetch('/api/dsa/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: activeCodeQuestion.title,
+          code: userCode
+        })
+      });
+
+      const data = await res.json();
+      setEvalResult(data);
+      
+      if (data.success) {
+        // Refresh dsa stats and checked status
+        fetchDsaData();
+      }
+    } catch (err) {
+      setEvalResult({
+        success: false,
+        error: 'Failed to connect to execution sandbox. Check if backend is active.'
+      });
+    } finally {
+      setEvaluating(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-6 animate-pulse">
@@ -175,6 +194,13 @@ export default function DSATracker() {
   }
 
   const platforms = Object.entries(dsaData.by_platform).sort((a, b) => b[1] - a[1]);
+
+  // Group recommended questions by difficulty
+  const questionsByDifficulty = {
+    Easy: questions.filter(q => q.difficulty === 'Easy'),
+    Medium: questions.filter(q => q.difficulty === 'Medium'),
+    Hard: questions.filter(q => q.difficulty === 'Hard'),
+  };
 
   return (
     <div className="space-y-6 select-none">
@@ -245,11 +271,12 @@ export default function DSATracker() {
           </div>
 
           <div className="flex-1 overflow-y-auto pr-1 space-y-6">
+            
             {/* Easy Category */}
             <div>
               <h3 className="text-xs font-extrabold text-success uppercase tracking-wider mb-3 px-1">Easy Questions</h3>
               <div className="space-y-2">
-                {RECOMMENDED_QUESTIONS.Easy.map((q) => {
+                {questionsByDifficulty.Easy.map((q) => {
                   const solved = isQuestionSolved(q.title);
                   return (
                     <div 
@@ -273,14 +300,16 @@ export default function DSATracker() {
                           <span className="text-[10px] text-muted-foreground/80 font-bold">{q.platform}</span>
                         </div>
                       </div>
-                      {!solved && (
-                        <button
-                          onClick={() => logRecommendedSolve(q.title, 'Easy', q.platform)}
-                          className="px-2.5 py-1 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-[10px] font-bold transition-all cursor-pointer shadow-sm"
-                        >
-                          Mark Solved
-                        </button>
-                      )}
+                      <button
+                        onClick={() => openCodingWorkspace(q)}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer shadow-sm ${
+                          solved 
+                            ? 'bg-secondary border border-border/80 text-muted-foreground hover:bg-muted'
+                            : 'bg-emerald-500 hover:bg-emerald-600 text-white'
+                        }`}
+                      >
+                        {solved ? 'View Code' : 'Solve & Run'}
+                      </button>
                     </div>
                   );
                 })}
@@ -291,7 +320,7 @@ export default function DSATracker() {
             <div>
               <h3 className="text-xs font-extrabold text-warning uppercase tracking-wider mb-3 px-1">Medium Questions</h3>
               <div className="space-y-2">
-                {RECOMMENDED_QUESTIONS.Medium.map((q) => {
+                {questionsByDifficulty.Medium.map((q) => {
                   const solved = isQuestionSolved(q.title);
                   return (
                     <div 
@@ -315,14 +344,16 @@ export default function DSATracker() {
                           <span className="text-[10px] text-muted-foreground/80 font-bold">{q.platform}</span>
                         </div>
                       </div>
-                      {!solved && (
-                        <button
-                          onClick={() => logRecommendedSolve(q.title, 'Medium', q.platform)}
-                          className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-amber-950 rounded-lg text-[10px] font-bold transition-all cursor-pointer shadow-sm"
-                        >
-                          Mark Solved
-                        </button>
-                      )}
+                      <button
+                        onClick={() => openCodingWorkspace(q)}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer shadow-sm ${
+                          solved 
+                            ? 'bg-secondary border border-border/80 text-muted-foreground hover:bg-muted'
+                            : 'bg-amber-500 hover:bg-amber-600 text-amber-950'
+                        }`}
+                      >
+                        {solved ? 'View Code' : 'Solve & Run'}
+                      </button>
                     </div>
                   );
                 })}
@@ -333,7 +364,7 @@ export default function DSATracker() {
             <div>
               <h3 className="text-xs font-extrabold text-danger uppercase tracking-wider mb-3 px-1">Hard Questions</h3>
               <div className="space-y-2">
-                {RECOMMENDED_QUESTIONS.Hard.map((q) => {
+                {questionsByDifficulty.Hard.map((q) => {
                   const solved = isQuestionSolved(q.title);
                   return (
                     <div 
@@ -357,14 +388,16 @@ export default function DSATracker() {
                           <span className="text-[10px] text-muted-foreground/80 font-bold">{q.platform}</span>
                         </div>
                       </div>
-                      {!solved && (
-                        <button
-                          onClick={() => logRecommendedSolve(q.title, 'Hard', q.platform)}
-                          className="px-2.5 py-1 bg-danger hover:bg-danger/90 text-white rounded-lg text-[10px] font-bold transition-all cursor-pointer shadow-sm"
-                        >
-                          Mark Solved
-                        </button>
-                      )}
+                      <button
+                        onClick={() => openCodingWorkspace(q)}
+                        className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer shadow-sm ${
+                          solved 
+                            ? 'bg-secondary border border-border/80 text-muted-foreground hover:bg-muted'
+                            : 'bg-danger hover:bg-danger/90 text-white'
+                        }`}
+                      >
+                        {solved ? 'View Code' : 'Solve & Run'}
+                      </button>
                     </div>
                   );
                 })}
@@ -525,6 +558,159 @@ export default function DSATracker() {
         </div>
 
       </div>
+
+      {/* Split-Screen Coding Workspace Modal */}
+      {activeCodeQuestion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 select-text">
+          <div className="bg-card border border-border rounded-2xl w-full max-w-5xl h-[85vh] overflow-hidden shadow-2xl relative flex flex-col">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+              <div className="flex items-center gap-2">
+                <FileCode className="h-5 w-5 text-primary" />
+                <h2 className="text-base font-bold text-foreground">
+                  Coding Workspace: {activeCodeQuestion.title}
+                </h2>
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                  activeCodeQuestion.difficulty === 'Easy' ? 'bg-emerald-500/10 text-success border-emerald-500/20' : 
+                  activeCodeQuestion.difficulty === 'Medium' ? 'bg-amber-500/10 text-warning border-amber-500/20' : 
+                  'bg-rose-500/10 text-danger border-rose-500/20'
+                }`}>
+                  {activeCodeQuestion.difficulty}
+                </span>
+                <span className="text-[10px] font-bold text-muted-foreground">({activeCodeQuestion.platform})</span>
+              </div>
+              <button 
+                onClick={() => setActiveCodeQuestion(null)}
+                className="p-1 rounded-lg text-muted-foreground hover:bg-secondary transition-all cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Split Panels Body */}
+            <div className="flex-1 flex flex-col md:flex-row min-h-0">
+              
+              {/* Left Panel: Question Instructions */}
+              <div className="w-full md:w-2/5 p-6 overflow-y-auto border-b md:border-b-0 md:border-r border-border space-y-4">
+                <div>
+                  <h3 className="text-sm font-black text-foreground">Problem Description</h3>
+                  <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
+                    Write a function that solves the problem <strong>{activeCodeQuestion.title}</strong> using the starter code class and method template on the right.
+                  </p>
+                </div>
+
+                <div className="p-3.5 bg-secondary/30 border border-border/80 rounded-xl space-y-2">
+                  <h4 className="text-xs font-bold text-foreground">Environment Details:</h4>
+                  <ul className="text-[10px] text-muted-foreground list-disc list-inside space-y-1">
+                    <li>Language: <strong>Python 3</strong></li>
+                    <li>Libraries: Standard library `math`, `collections`, `heapq`, `typing` are available.</li>
+                    <li>Class setup: Maintain the class name <code className="font-mono bg-secondary px-1 py-0.5 rounded">Solution</code> and function names exactly as provided.</li>
+                  </ul>
+                </div>
+
+                <div className="p-3.5 bg-amber-500/5 border border-amber-500/15 text-warning rounded-xl flex gap-2">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <div className="text-[10px] leading-relaxed">
+                    <strong className="text-foreground font-bold">Execution Timeout:</strong> A strict 2.0s limit is enforced to block loops and run safely.
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Panel: Editor & Sandbox */}
+              <div className="w-full md:w-3/5 flex flex-col min-h-0 bg-slate-950 text-slate-100">
+                {/* Editor Toolbar */}
+                <div className="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 shrink-0">
+                  <span className="text-[10px] font-bold text-slate-400 font-mono">solution.py</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={resetStarterCode}
+                      className="p-1 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded transition-all cursor-pointer"
+                      title="Reset code"
+                    >
+                      <RotateCcw className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={runCodeSolution}
+                      disabled={evaluating}
+                      className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                    >
+                      <Play className="h-3 w-3 fill-white" />
+                      <span>{evaluating ? 'Running...' : 'Run Code'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Editor Textarea */}
+                <div className="flex-1 min-h-0 relative p-4 flex">
+                  <div className="text-slate-600 font-mono text-xs pr-3 select-none text-right shrink-0 border-r border-slate-800/80">
+                    {/* Mock line numbers */}
+                    {[...Array(20)].map((_, i) => (
+                      <div key={i} className="h-5">{i + 1}</div>
+                    ))}
+                  </div>
+                  <textarea
+                    value={userCode}
+                    onChange={(e) => setUserCode(e.target.value)}
+                    className="flex-1 bg-transparent border-none outline-none resize-none font-mono text-xs text-slate-200 pl-4 py-0 focus:ring-0 leading-5 overflow-y-auto"
+                    spellCheck="false"
+                  />
+                </div>
+
+                {/* Console Outputs */}
+                <div className="border-t border-slate-800 bg-slate-900 h-44 shrink-0 flex flex-col min-h-0">
+                  <div className="flex items-center gap-1.5 px-4 py-1.5 bg-slate-950 border-b border-slate-800 shrink-0 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    <Terminal className="h-3 w-3" />
+                    <span>Console Output</span>
+                  </div>
+
+                  <div className="flex-1 p-4 font-mono text-xs overflow-y-auto min-h-0 leading-relaxed select-text">
+                    {evaluating && (
+                      <div className="flex items-center gap-2 text-slate-400">
+                        <div className="h-3.5 w-3.5 border-2 border-slate-400 border-t-transparent rounded-full animate-spin"></div>
+                        <span>Evaluating solution against test cases...</span>
+                      </div>
+                    )}
+                    
+                    {!evaluating && !evalResult && (
+                      <span className="text-slate-500">Run code to see test results.</span>
+                    )}
+
+                    {!evaluating && evalResult && (
+                      <div className="space-y-1.5">
+                        {evalResult.success ? (
+                          <div className="text-emerald-400 font-bold bg-emerald-500/10 p-2.5 rounded-lg border border-emerald-500/20">
+                            {evalResult.message || "Success! All test cases passed."}
+                          </div>
+                        ) : (
+                          <div className="text-rose-400 font-bold bg-rose-500/10 p-2.5 rounded-lg border border-rose-500/20">
+                            Failed / Error:
+                          </div>
+                        )}
+                        
+                        {evalResult.output && (
+                          <pre className="text-slate-300 bg-slate-950 p-2 rounded border border-slate-800 whitespace-pre-wrap">
+                            {evalResult.output}
+                          </pre>
+                        )}
+                        
+                        {evalResult.error && (
+                          <pre className="text-rose-400 bg-slate-950 p-2 rounded border border-slate-850 whitespace-pre-wrap font-bold">
+                            {evalResult.error}
+                          </pre>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

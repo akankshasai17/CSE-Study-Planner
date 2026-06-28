@@ -5,6 +5,7 @@ import os
 from datetime import datetime, timedelta
 
 import db
+import dsa_eval
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'cse-study-planner-secret-key-1234')
@@ -371,6 +372,44 @@ def delete_dsa(problem_id):
     user_id = session['user_id']
     db.delete_dsa_problem(user_id, problem_id)
     return jsonify({'message': 'DSA Problem log deleted successfully.'}), 200
+
+@app.route('/api/dsa/questions', methods=['GET'])
+@login_required
+def get_dsa_questions():
+    questions_list = []
+    for title, qdata in dsa_eval.RECOMMENDED_QUESTIONS_DATA.items():
+        questions_list.append({
+            "title": title,
+            "difficulty": qdata["difficulty"],
+            "platform": qdata["platform"],
+            "starter_code": qdata["starter_code"]
+        })
+    return jsonify(questions_list), 200
+
+@app.route('/api/dsa/run', methods=['POST'])
+@login_required
+def run_dsa_code():
+    user_id = session['user_id']
+    data = request.json or {}
+    title = data.get('title')
+    code = data.get('code')
+    
+    if not title or not code:
+        return jsonify({'error': 'Question title and code are required.'}), 400
+        
+    res = dsa_eval.evaluate_code(title, code)
+    if res["success"]:
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        solved_problems = db.get_dsa_problems(user_id)
+        already_logged = any(p['title'].strip().lower() == title.strip().lower() for p in solved_problems)
+        
+        if not already_logged:
+            db.add_dsa_problem(user_id, title, res["platform"], res["difficulty"], today_str)
+            res["message"] = "All test cases passed! Problem successfully marked as solved."
+        else:
+            res["message"] = "All test cases passed! (Problem was already marked as solved)."
+            
+    return jsonify(res), 200
 
 # --- CGPA Calculator APIs ---
 
