@@ -34,6 +34,7 @@ export default function DSATracker() {
   // Coding Workspace State
   const [activeCodeQuestion, setActiveCodeQuestion] = useState(null); // the question object
   const [userCode, setUserCode] = useState('');
+  const [selectedLanguage, setSelectedLanguage] = useState('python'); // python, javascript
   const [evaluating, setEvaluating] = useState(false);
   const [evalResult, setEvalResult] = useState(null);
 
@@ -136,14 +137,24 @@ export default function DSATracker() {
   // Open Workspace
   const openCodingWorkspace = (q) => {
     setActiveCodeQuestion(q);
-    setUserCode(q.starter_code);
+    setSelectedLanguage('python');
+    setUserCode(q.templates.python);
     setEvalResult(null);
+  };
+
+  // Switch Language
+  const handleLanguageChange = (lang) => {
+    setSelectedLanguage(lang);
+    if (activeCodeQuestion) {
+      setUserCode(activeCodeQuestion.templates[lang]);
+      setEvalResult(null);
+    }
   };
 
   // Reset starter code
   const resetStarterCode = () => {
     if (activeCodeQuestion) {
-      setUserCode(activeCodeQuestion.starter_code);
+      setUserCode(activeCodeQuestion.templates[selectedLanguage]);
       setEvalResult(null);
     }
   };
@@ -160,7 +171,8 @@ export default function DSATracker() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: activeCodeQuestion.title,
-          code: userCode
+          code: userCode,
+          language: selectedLanguage
         })
       });
 
@@ -596,16 +608,16 @@ export default function DSATracker() {
                 <div>
                   <h3 className="text-sm font-black text-foreground">Problem Description</h3>
                   <p className="text-xs text-muted-foreground mt-2 leading-relaxed">
-                    Write a function that solves the problem <strong>{activeCodeQuestion.title}</strong> using the starter code class and method template on the right.
+                    Write a function that solves the problem <strong>{activeCodeQuestion.title}</strong> using the starter code template on the right.
                   </p>
                 </div>
 
                 <div className="p-3.5 bg-secondary/30 border border-border/80 rounded-xl space-y-2">
                   <h4 className="text-xs font-bold text-foreground">Environment Details:</h4>
                   <ul className="text-[10px] text-muted-foreground list-disc list-inside space-y-1">
-                    <li>Language: <strong>Python 3</strong></li>
-                    <li>Libraries: Standard library `math`, `collections`, `heapq`, `typing` are available.</li>
-                    <li>Class setup: Maintain the class name <code className="font-mono bg-secondary px-1 py-0.5 rounded">Solution</code> and function names exactly as provided.</li>
+                    <li>Languages Supported: <strong>Python 3</strong>, <strong>JavaScript</strong></li>
+                    <li>Libraries: Common helper modules are imported. In JavaScript, standard ES6 methods are supported.</li>
+                    <li>Validation: Click **Run Code** to execute your code against test cases in the local sandbox.</li>
                   </ul>
                 </div>
 
@@ -621,7 +633,17 @@ export default function DSATracker() {
               <div className="w-full md:w-3/5 flex flex-col min-h-0 bg-slate-950 text-slate-100">
                 {/* Editor Toolbar */}
                 <div className="flex items-center justify-between px-4 py-2 bg-slate-900 border-b border-slate-800 shrink-0">
-                  <span className="text-[10px] font-bold text-slate-400 font-mono">solution.py</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-slate-400 font-mono">Language:</span>
+                    <select
+                      value={selectedLanguage}
+                      onChange={(e) => handleLanguageChange(e.target.value)}
+                      className="bg-slate-950 border border-slate-800 text-slate-200 text-[10px] font-bold py-1 px-2 rounded outline-none focus:border-primary cursor-pointer"
+                    >
+                      <option value="python">Python 3</option>
+                      <option value="javascript">JavaScript (Node.js)</option>
+                    </select>
+                  </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={resetStarterCode}
@@ -661,7 +683,7 @@ export default function DSATracker() {
                 <div className="border-t border-slate-800 bg-slate-900 h-44 shrink-0 flex flex-col min-h-0">
                   <div className="flex items-center gap-1.5 px-4 py-1.5 bg-slate-950 border-b border-slate-800 shrink-0 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                     <Terminal className="h-3 w-3" />
-                    <span>Console Output</span>
+                    <span>Console Output ({selectedLanguage})</span>
                   </div>
 
                   <div className="flex-1 p-4 font-mono text-xs overflow-y-auto min-h-0 leading-relaxed select-text">

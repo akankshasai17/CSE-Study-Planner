@@ -382,7 +382,10 @@ def get_dsa_questions():
             "title": title,
             "difficulty": qdata["difficulty"],
             "platform": qdata["platform"],
-            "starter_code": qdata["starter_code"]
+            "templates": {
+                "python": qdata["python"]["starter_code"],
+                "javascript": qdata["javascript"]["starter_code"]
+            }
         })
     return jsonify(questions_list), 200
 
@@ -393,11 +396,12 @@ def run_dsa_code():
     data = request.json or {}
     title = data.get('title')
     code = data.get('code')
+    language = data.get('language', 'python')
     
     if not title or not code:
         return jsonify({'error': 'Question title and code are required.'}), 400
         
-    res = dsa_eval.evaluate_code(title, code)
+    res = dsa_eval.evaluate_code(title, code, language)
     if res["success"]:
         today_str = datetime.now().strftime("%Y-%m-%d")
         solved_problems = db.get_dsa_problems(user_id)
@@ -405,9 +409,9 @@ def run_dsa_code():
         
         if not already_logged:
             db.add_dsa_problem(user_id, title, res["platform"], res["difficulty"], today_str)
-            res["message"] = "All test cases passed! Problem successfully marked as solved."
+            res["message"] = f"All test cases passed in {language}! Problem successfully marked as solved."
         else:
-            res["message"] = "All test cases passed! (Problem was already marked as solved)."
+            res["message"] = f"All test cases passed in {language}! (Problem was already marked as solved)."
             
     return jsonify(res), 200
 
