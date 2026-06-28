@@ -1,107 +1,9 @@
-import sqlite3
+import requests
 import os
 from datetime import datetime, timedelta
-from contextlib import contextmanager
 
-DB_PATH = os.path.join(os.path.dirname(__file__), 'database.db')
-
-@contextmanager
-def db_session():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-def init_db():
-    with db_session() as conn:
-        # Enable foreign keys
-        conn.execute("PRAGMA foreign_keys = ON;")
-        
-        # Users Table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT UNIQUE NOT NULL,
-                name TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                streak INTEGER DEFAULT 0,
-                last_active_date TEXT
-            );
-        """)
-        
-        # Subjects Table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS subjects (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                name TEXT NOT NULL,
-                code TEXT NOT NULL,
-                color TEXT NOT NULL,
-                attended_classes INTEGER DEFAULT 0,
-                total_classes INTEGER DEFAULT 0,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            );
-        """)
-        
-        # Tasks Table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                subject_id INTEGER,
-                priority TEXT CHECK(priority IN ('Low', 'Medium', 'High')) DEFAULT 'Medium',
-                due_date TEXT,
-                completed INTEGER DEFAULT 0,
-                completed_at TEXT,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE SET NULL
-            );
-        """)
-        
-        # DSA Tracker Table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS dsa_problems (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                title TEXT NOT NULL,
-                platform TEXT NOT NULL,
-                difficulty TEXT CHECK(difficulty IN ('Easy', 'Medium', 'Hard')) DEFAULT 'Medium',
-                solved_date TEXT NOT NULL,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            );
-        """)
-        
-        # CGPA Calculator Table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS sgpa_records (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                semester INTEGER NOT NULL,
-                sgpa REAL NOT NULL,
-                UNIQUE(user_id, semester),
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            );
-        """)
-        
-        # Notes Table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS notes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id INTEGER NOT NULL,
-                subject_id INTEGER,
-                title TEXT NOT NULL,
-                content TEXT NOT NULL,
-                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE SET NULL
-            );
-        """)
-        
-        conn.commit()
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://nhtvfrpvpucdiwpdbzmk.supabase.co")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5odHZmcnB2cHVjZGl3cGRiem1rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI2MDI4NzEsImV4cCI6MjA5ODE3ODg3MX0.n9dAr7MccbQmVEUxS_s_2UzQltoJbDsyRzkdg7qaej0")
 
 CORE_SUBJECTS = [
     {
@@ -172,242 +74,327 @@ CORE_SUBJECTS = [
     }
 ]
 
-def seed_core_subjects(conn, user_id):
+def supabase_request(method, path, params=None, json_data=None, headers=None):
+    url = f"{SUPABASE_URL}/rest/v1/{path}"
+    default_headers = {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation"
+    }
+    if headers:
+        default_headers.update(headers)
+    
+    response = requests.request(method, url, params=params, json=json_data, headers=default_headers)
+    response.raise_for_status()
+    return response.json()
+
+def init_db():
+    # Clears user tables to provide a clean database state for test isolation
+    try:
+        supabase_request("DELETE", "users", params={"id": "gt.0"})
+    except Exception:
+        pass
+
+# --- Auth Operations ---
+
+def seed_core_subjects(user_id):
     for sub in CORE_SUBJECTS:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO subjects (user_id, name, code, color, attended_classes, total_classes) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, sub["name"], sub["code"], sub["color"], 0, 0)
-        )
-        subject_id = cursor.lastrowid
+        res = supabase_request("POST", "subjects", json_data={
+            "user_id": user_id,
+            "name": sub["name"],
+            "code": sub["code"],
+            "color": sub["color"],
+            "attended_classes": 0,
+            "total_classes": 0
+        })
+        if not res:
+            continue
+        subject_id = res[0]["id"]
         
-        for topic in sub["topics"]:
-            cursor.execute(
-                "INSERT INTO tasks (user_id, title, subject_id, priority, due_date, completed, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (user_id, topic, subject_id, 'Medium', None, 0, None)
-            )
+        tasks_payload = [
+            {
+                "user_id": user_id,
+                "title": topic,
+                "subject_id": subject_id,
+                "priority": "Medium",
+                "due_date": None,
+                "completed": False,
+                "completed_at": None
+            }
+            for topic in sub["topics"]
+        ]
+        supabase_request("POST", "tasks", json_data=tasks_payload)
 
 def create_user(username, name, password_hash):
     try:
-        with db_session() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO users (username, name, password_hash, last_active_date) VALUES (?, ?, ?, ?)",
-                (username, name, password_hash, None)
-            )
-            user_id = cursor.lastrowid
-            
-            # Auto-seed core subjects and tasks
-            seed_core_subjects(conn, user_id)
-            
-            conn.commit()
-            return user_id
-    except sqlite3.IntegrityError:
+        res = supabase_request("POST", "users", json_data={
+            "username": username,
+            "name": name,
+            "password_hash": password_hash,
+            "streak": 0,
+            "last_active_date": None
+        })
+        if not res:
+            return None
+        user_id = res[0]["id"]
+        
+        # Auto-seed core subjects and tasks
+        seed_core_subjects(user_id)
+        return user_id
+    except Exception:
         return None
 
 def get_user_by_username(username):
-    with db_session() as conn:
-        return conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+    res = supabase_request("GET", "users", params={"username": f"eq.{username}"})
+    return res[0] if res else None
 
 def get_user_by_id(user_id):
-    with db_session() as conn:
-        return conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    res = supabase_request("GET", "users", params={"id": f"eq.{user_id}"})
+    return res[0] if res else None
 
 def record_user_activity(user_id):
-    """
-    Increments streak if active on consecutive days.
-    Resets to 1 if streak is broken.
-    No change if already active today.
-    """
     today_str = datetime.now().strftime("%Y-%m-%d")
     yesterday_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     
-    with db_session() as conn:
-        user = conn.execute("SELECT streak, last_active_date FROM users WHERE id = ?", (user_id,)).fetchone()
-        if not user:
-            return
-            
-        current_streak = user['streak']
-        last_active = user['last_active_date']
+    user = get_user_by_id(user_id)
+    if not user:
+        return
         
-        if last_active == today_str:
-            # Already active today, streak stays same
-            return
-        elif last_active == yesterday_str:
-            # Active on consecutive day, increment streak
-            new_streak = current_streak + 1
-        else:
-            # Streak broken or first activity, set to 1
-            new_streak = 1
-            
-        conn.execute(
-            "UPDATE users SET streak = ?, last_active_date = ? WHERE id = ?",
-            (new_streak, today_str, user_id)
-        )
-        conn.commit()
+    current_streak = user.get('streak', 0)
+    last_active = user.get('last_active_date')
+    
+    if last_active == today_str:
+        return
+    elif last_active == yesterday_str:
+        new_streak = current_streak + 1
+    else:
+        new_streak = 1
+        
+    supabase_request("PATCH", "users", params={"id": f"eq.{user_id}"}, json_data={
+        "streak": new_streak,
+        "last_active_date": today_str
+    })
 
 # --- Subjects Operations ---
 
 def get_subjects(user_id):
-    with db_session() as conn:
-        return conn.execute("SELECT * FROM subjects WHERE user_id = ?", (user_id,)).fetchall()
+    res = supabase_request("GET", "subjects", params={"user_id": f"eq.{user_id}"})
+    return res
 
 def add_subject(user_id, name, code, color):
-    with db_session() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO subjects (user_id, name, code, color) VALUES (?, ?, ?, ?)",
-            (user_id, name, code, color)
-        )
-        conn.commit()
-        return cursor.lastrowid
+    res = supabase_request("POST", "subjects", json_data={
+        "user_id": user_id,
+        "name": name,
+        "code": code,
+        "color": color,
+        "attended_classes": 0,
+        "total_classes": 0
+    })
+    return res[0]["id"] if res else None
 
 def update_subject(user_id, subject_id, name, code, color):
-    with db_session() as conn:
-        conn.execute(
-            "UPDATE subjects SET name = ?, code = ?, color = ? WHERE id = ? AND user_id = ?",
-            (name, code, color, subject_id, user_id)
-        )
-        conn.commit()
+    supabase_request(
+        "PATCH", 
+        "subjects", 
+        params={"id": f"eq.{subject_id}", "user_id": f"eq.{user_id}"},
+        json_data={"name": name, "code": code, "color": color}
+    )
 
 def delete_subject(user_id, subject_id):
-    with db_session() as conn:
-        conn.execute("DELETE FROM subjects WHERE id = ? AND user_id = ?", (subject_id, user_id))
-        conn.commit()
+    supabase_request(
+        "DELETE", 
+        "subjects", 
+        params={"id": f"eq.{subject_id}", "user_id": f"eq.{user_id}"}
+    )
 
 def update_attendance(user_id, subject_id, attended, total):
-    with db_session() as conn:
-        conn.execute(
-            "UPDATE subjects SET attended_classes = ?, total_classes = ? WHERE id = ? AND user_id = ?",
-            (attended, total, subject_id, user_id)
-        )
-        conn.commit()
+    supabase_request(
+        "PATCH", 
+        "subjects", 
+        params={"id": f"eq.{subject_id}", "user_id": f"eq.{user_id}"},
+        json_data={"attended_classes": attended, "total_classes": total}
+    )
 
 # --- Tasks Operations ---
 
 def get_tasks(user_id):
-    with db_session() as conn:
-        return conn.execute("""
-            SELECT t.*, s.name as subject_name, s.color as subject_color 
-            FROM tasks t 
-            LEFT JOIN subjects s ON t.subject_id = s.id 
-            WHERE t.user_id = ?
-            ORDER BY t.due_date ASC, t.id DESC
-        """, (user_id,)).fetchall()
+    res = supabase_request(
+        "GET", 
+        "tasks", 
+        params={
+            "user_id": f"eq.{user_id}",
+            "select": "*,subjects(name,color)",
+            "order": "due_date.asc.nullslast,id.desc"
+        }
+    )
+    for item in res:
+        item['completed'] = 1 if item.get('completed') else 0
+        subject = item.pop('subjects', None)
+        if subject and isinstance(subject, dict):
+            item['subject_name'] = subject.get('name')
+            item['subject_color'] = subject.get('color')
+        else:
+            item['subject_name'] = None
+            item['subject_color'] = None
+    return res
 
 def add_task(user_id, title, subject_id, priority, due_date):
-    with db_session() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO tasks (user_id, title, subject_id, priority, due_date) VALUES (?, ?, ?, ?, ?)",
-            (user_id, title, subject_id, priority, due_date)
-        )
-        conn.commit()
-        record_user_activity(user_id)
-        return cursor.lastrowid
+    res = supabase_request("POST", "tasks", json_data={
+        "user_id": user_id,
+        "title": title,
+        "subject_id": subject_id if subject_id else None,
+        "priority": priority,
+        "due_date": due_date if due_date else None,
+        "completed": False,
+        "completed_at": None
+    })
+    record_user_activity(user_id)
+    return res[0]["id"] if res else None
 
 def update_task(user_id, task_id, title, subject_id, priority, due_date, completed):
     completed_at = None
     if completed:
         completed_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-    with db_session() as conn:
-        conn.execute(
-            """UPDATE tasks 
-               SET title = ?, subject_id = ?, priority = ?, due_date = ?, completed = ?, completed_at = ? 
-               WHERE id = ? AND user_id = ?""",
-            (title, subject_id, priority, due_date, completed, completed_at, task_id, user_id)
-        )
-        conn.commit()
-        if completed:
-            record_user_activity(user_id)
+    supabase_request(
+        "PATCH", 
+        "tasks", 
+        params={"id": f"eq.{task_id}", "user_id": f"eq.{user_id}"},
+        json_data={
+            "title": title,
+            "subject_id": subject_id if subject_id else None,
+            "priority": priority,
+            "due_date": due_date if due_date else None,
+            "completed": bool(completed),
+            "completed_at": completed_at
+        }
+    )
+    if completed:
+        record_user_activity(user_id)
 
 def delete_task(user_id, task_id):
-    with db_session() as conn:
-        conn.execute("DELETE FROM tasks WHERE id = ? AND user_id = ?", (task_id, user_id))
-        conn.commit()
+    supabase_request(
+        "DELETE", 
+        "tasks", 
+        params={"id": f"eq.{task_id}", "user_id": f"eq.{user_id}"}
+    )
 
 # --- DSA Tracker Operations ---
 
 def get_dsa_problems(user_id):
-    with db_session() as conn:
-        return conn.execute(
-            "SELECT * FROM dsa_problems WHERE user_id = ? ORDER BY solved_date DESC, id DESC",
-            (user_id,)
-        ).fetchall()
+    res = supabase_request(
+        "GET", 
+        "dsa_problems", 
+        params={
+            "user_id": f"eq.{user_id}",
+            "order": "solved_date.desc,id.desc"
+        }
+    )
+    return res
 
 def add_dsa_problem(user_id, title, platform, difficulty, solved_date):
     if not solved_date:
         solved_date = datetime.now().strftime("%Y-%m-%d")
-    with db_session() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO dsa_problems (user_id, title, platform, difficulty, solved_date) VALUES (?, ?, ?, ?, ?)",
-            (user_id, title, platform, difficulty, solved_date)
-        )
-        conn.commit()
-        record_user_activity(user_id)
-        return cursor.lastrowid
+    res = supabase_request("POST", "dsa_problems", json_data={
+        "user_id": user_id,
+        "title": title,
+        "platform": platform,
+        "difficulty": difficulty,
+        "solved_date": solved_date
+    })
+    record_user_activity(user_id)
+    return res[0]["id"] if res else None
 
 def delete_dsa_problem(user_id, problem_id):
-    with db_session() as conn:
-        conn.execute("DELETE FROM dsa_problems WHERE id = ? AND user_id = ?", (problem_id, user_id))
-        conn.commit()
+    supabase_request(
+        "DELETE", 
+        "dsa_problems", 
+        params={"id": f"eq.{problem_id}", "user_id": f"eq.{user_id}"}
+    )
 
 # --- CGPA Calculator Operations ---
 
 def get_sgpa_records(user_id):
-    with db_session() as conn:
-        return conn.execute("SELECT * FROM sgpa_records WHERE user_id = ? ORDER BY semester ASC", (user_id,)).fetchall()
+    res = supabase_request(
+        "GET", 
+        "sgpa_records", 
+        params={
+            "user_id": f"eq.{user_id}",
+            "order": "semester.asc"
+        }
+    )
+    return res
 
 def add_sgpa_record(user_id, semester, sgpa):
-    with db_session() as conn:
-        cursor = conn.cursor()
-        # Insert or replace to handle updates
-        cursor.execute(
-            "INSERT OR REPLACE INTO sgpa_records (user_id, semester, sgpa) VALUES (?, ?, ?)",
-            (user_id, semester, sgpa)
-        )
-        conn.commit()
-        return cursor.lastrowid
+    res = supabase_request(
+        "POST", 
+        "sgpa_records", 
+        params={"on_conflict": "user_id,semester"},
+        json_data={
+            "user_id": user_id,
+            "semester": semester,
+            "sgpa": sgpa
+        },
+        headers={"Prefer": "resolution=merge-duplicates, return=representation"}
+    )
+    return res[0]["id"] if res else None
 
 def delete_sgpa_record(user_id, record_id):
-    with db_session() as conn:
-        conn.execute("DELETE FROM sgpa_records WHERE id = ? AND user_id = ?", (record_id, user_id))
-        conn.commit()
+    supabase_request(
+        "DELETE", 
+        "sgpa_records", 
+        params={"id": f"eq.{record_id}", "user_id": f"eq.{user_id}"}
+    )
 
 # --- Notes Operations ---
 
 def get_notes(user_id):
-    with db_session() as conn:
-        return conn.execute("""
-            SELECT n.*, s.name as subject_name, s.color as subject_color 
-            FROM notes n 
-            LEFT JOIN subjects s ON n.subject_id = s.id 
-            WHERE n.user_id = ?
-            ORDER BY n.updated_at DESC
-        """, (user_id,)).fetchall()
+    res = supabase_request(
+        "GET", 
+        "notes", 
+        params={
+            "user_id": f"eq.{user_id}",
+            "select": "*,subjects(name,color)",
+            "order": "updated_at.desc"
+        }
+    )
+    for item in res:
+        subject = item.pop('subjects', None)
+        if subject and isinstance(subject, dict):
+            item['subject_name'] = subject.get('name')
+            item['subject_color'] = subject.get('color')
+        else:
+            item['subject_name'] = None
+            item['subject_color'] = None
+    return res
 
 def add_note(user_id, subject_id, title, content):
-    with db_session() as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO notes (user_id, subject_id, title, content) VALUES (?, ?, ?, ?)",
-            (user_id, subject_id, title, content)
-        )
-        conn.commit()
-        return cursor.lastrowid
+    res = supabase_request("POST", "notes", json_data={
+        "user_id": user_id,
+        "subject_id": subject_id if subject_id else None,
+        "title": title,
+        "content": content
+    })
+    return res[0]["id"] if res else None
 
 def update_note(user_id, note_id, subject_id, title, content):
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    with db_session() as conn:
-        conn.execute(
-            "UPDATE notes SET subject_id = ?, title = ?, content = ?, updated_at = ? WHERE id = ? AND user_id = ?",
-            (subject_id, title, content, now_str, note_id, user_id)
-        )
-        conn.commit()
+    supabase_request(
+        "PATCH", 
+        "notes", 
+        params={"id": f"eq.{note_id}", "user_id": f"eq.{user_id}"},
+        json_data={
+            "subject_id": subject_id if subject_id else None,
+            "title": title,
+            "content": content,
+            "updated_at": now_str
+        }
+    )
 
 def delete_note(user_id, note_id):
-    with db_session() as conn:
-        conn.execute("DELETE FROM notes WHERE id = ? AND user_id = ?", (note_id, user_id))
-        conn.commit()
+    supabase_request(
+        "DELETE", 
+        "notes", 
+        params={"id": f"eq.{note_id}", "user_id": f"eq.{user_id}"}
+    )
