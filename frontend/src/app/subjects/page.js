@@ -12,7 +12,9 @@ import {
   BookOpen,
   CalendarCheck,
   UserCheck,
-  UserX
+  UserX,
+  CheckCircle2,
+  Circle
 } from 'lucide-react';
 
 const colors = [
@@ -28,6 +30,7 @@ const colors = [
 
 export default function SubjectsPage() {
   const [subjects, setSubjects] = useState([]);
+  const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -40,12 +43,22 @@ export default function SubjectsPage() {
     color: '#3B82F6',
   });
 
-  const fetchSubjects = async () => {
+  const fetchSubjectsAndTasks = async () => {
     try {
-      const res = await fetch('/api/subjects');
-      if (!res.ok) throw new Error('Failed to load subjects.');
-      const data = await res.json();
-      setSubjects(data);
+      const [resSub, resTasks] = await Promise.all([
+        fetch('/api/subjects'),
+        fetch('/api/tasks')
+      ]);
+
+      if (!resSub.ok || !resTasks.ok) {
+        throw new Error('Failed to load syllabus data.');
+      }
+
+      const subData = await resSub.json();
+      const tasksData = await resTasks.json();
+
+      setSubjects(subData);
+      setTasks(tasksData);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -54,7 +67,7 @@ export default function SubjectsPage() {
   };
 
   useEffect(() => {
-    fetchSubjects();
+    fetchSubjectsAndTasks();
   }, []);
 
   const handleInputChange = (e) => {
@@ -104,7 +117,7 @@ export default function SubjectsPage() {
       }
 
       setIsModalOpen(false);
-      fetchSubjects();
+      fetchSubjectsAndTasks();
     } catch (err) {
       setError(err.message);
     }
@@ -115,7 +128,7 @@ export default function SubjectsPage() {
     try {
       const res = await fetch(`/api/subjects/${subjectId}`, { method: 'DELETE' });
       if (res.ok) {
-        fetchSubjects();
+        fetchSubjectsAndTasks();
       }
     } catch (err) {
       console.error('Error deleting subject:', err);
@@ -143,7 +156,7 @@ export default function SubjectsPage() {
         })
       });
       if (res.ok) {
-        fetchSubjects();
+        fetchSubjectsAndTasks();
       }
     } catch (err) {
       console.error('Error logging attendance:', err);
@@ -174,10 +187,32 @@ export default function SubjectsPage() {
         })
       });
       if (res.ok) {
-        fetchSubjects();
+        fetchSubjectsAndTasks();
       }
     } catch (err) {
       console.error('Error logging attendance:', err);
+    }
+  };
+
+  // Toggle syllabus checklist tasks directly from the subject card
+  const toggleTaskCompletion = async (task) => {
+    try {
+      const res = await fetch(`/api/tasks/${task.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: task.title,
+          subject_id: task.subject_id,
+          priority: task.priority,
+          due_date: task.due_date,
+          completed: !task.completed
+        })
+      });
+      if (res.ok) {
+        fetchSubjectsAndTasks();
+      }
+    } catch (err) {
+      console.error('Error toggling task:', err);
     }
   };
 
@@ -187,7 +222,7 @@ export default function SubjectsPage() {
         <div className="h-10 bg-secondary rounded-xl w-48"></div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-44 bg-secondary rounded-2xl"></div>
+            <div key={i} className="h-60 bg-secondary rounded-2xl"></div>
           ))}
         </div>
       </div>
@@ -223,6 +258,9 @@ export default function SubjectsPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {subjects.map((subject) => {
             const lowAttendance = subject.attendance_pct < 75.0;
+            const subjectTasks = tasks.filter(t => t.subject_id === subject.id);
+            const completedCount = subjectTasks.filter(t => t.completed).length;
+
             return (
               <div 
                 key={subject.id}
@@ -292,10 +330,44 @@ export default function SubjectsPage() {
                         )}
                       </div>
                     </div>
+
+                    {/* Syllabus Checklist Section */}
+                    {subjectTasks.length > 0 && (
+                      <div className="mt-5 pt-4 border-t border-border/60">
+                        <div className="flex justify-between items-center text-xs font-bold text-muted-foreground mb-2">
+                          <span>Syllabus Topics</span>
+                          <span className="text-[10px] font-black bg-secondary px-1.5 py-0.5 rounded">
+                            {completedCount}/{subjectTasks.length}
+                          </span>
+                        </div>
+                        
+                        <div className="space-y-1 max-h-[120px] overflow-y-auto pr-1">
+                          {subjectTasks.map(task => (
+                            <button
+                              key={task.id}
+                              onClick={() => toggleTaskCompletion(task)}
+                              className="w-full text-left flex items-start gap-2 p-1.5 hover:bg-secondary/40 rounded-lg transition-all text-[11px] leading-tight select-none cursor-pointer"
+                            >
+                              <span className="shrink-0 mt-0.5">
+                                {task.completed ? (
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-success fill-success/10" />
+                                ) : (
+                                  <Circle className="h-3.5 w-3.5 text-muted-foreground/45" />
+                                )}
+                              </span>
+                              <span className={`truncate flex-1 ${task.completed ? 'line-through text-muted-foreground' : 'text-foreground/90 font-medium'}`}>
+                                {task.title}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                   </div>
 
                   {/* Attendance Log Quick Buttons */}
-                  <div className="mt-8 pt-4 border-t border-border flex items-center justify-between gap-2">
+                  <div className="mt-6 pt-4 border-t border-border flex items-center justify-between gap-2">
                     <button 
                       onClick={() => quickLogAttendance(subject, 'present')}
                       className="flex-1 py-1.5 bg-success/10 hover:bg-success text-success hover:text-success-foreground rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"

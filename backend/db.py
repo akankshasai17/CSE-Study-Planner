@@ -103,7 +103,89 @@ def init_db():
         
         conn.commit()
 
-# --- Auth Operations ---
+CORE_SUBJECTS = [
+    {
+        "name": "Data Structures and Algorithms",
+        "code": "DSA",
+        "color": "#EF4444",
+        "topics": [
+            "Study Arrays, Linked Lists, Stack, and Queue basics",
+            "Master Recursion, Backtracking, and Dynamic Programming",
+            "Learn Sorting & Searching algorithms (Binary Search, Merge Sort)",
+            "Understand Tree & Graph Traversals (BFS, DFS, Dijkstra's)"
+        ]
+    },
+    {
+        "name": "Database Management Systems",
+        "code": "DBMS",
+        "color": "#3B82F6",
+        "topics": [
+            "Understand ER Diagrams & Relational Algebra",
+            "Master SQL Queries (Joins, Subqueries, Aggregations)",
+            "Study Database Normalization (1NF, 2NF, 3NF, BCNF)",
+            "Learn Transactions & ACID Properties (Concurrency Control)"
+        ]
+    },
+    {
+        "name": "Operating Systems",
+        "code": "OS",
+        "color": "#10B981",
+        "topics": [
+            "Learn Process Scheduling algorithms (FIFO, Round Robin, SRTF)",
+            "Understand CPU Synchronization & Deadlocks (Banker's Algorithm)",
+            "Study Memory Management (Paging, Segmentation, Page Replacement)",
+            "Explore File Systems & Storage Structure"
+        ]
+    },
+    {
+        "name": "Computer Networks",
+        "code": "CN",
+        "color": "#F59E0B",
+        "topics": [
+            "Understand the OSI Model & TCP/IP Protocol Suite",
+            "Learn IP Addressing, Subnetting, and Routing Protocols",
+            "Study TCP vs UDP & Flow Control (Sliding Window)",
+            "Explore Application Layer Protocols (HTTP, DNS, SMTP)"
+        ]
+    },
+    {
+        "name": "Object Oriented Programming",
+        "code": "OOP",
+        "color": "#8B5CF6",
+        "topics": [
+            "Learn Four Pillars: Encapsulation, Abstraction, Inheritance, Polymorphism",
+            "Master Classes, Objects, Constructors, and Destructors",
+            "Understand Interfaces, Abstract Classes, and Method Overriding",
+            "Study Exception Handling and Memory Allocation"
+        ]
+    },
+    {
+        "name": "Artificial Intelligence",
+        "code": "AI",
+        "color": "#EC4899",
+        "topics": [
+            "Study Search Algorithms (Uninformed, Informed, A* Search)",
+            "Learn Knowledge Representation and Propositional Logic",
+            "Understand Machine Learning Basics (Supervised & Unsupervised)",
+            "Explore Neural Networks & Deep Learning Concepts"
+        ]
+    }
+]
+
+def seed_core_subjects(conn, user_id):
+    for sub in CORE_SUBJECTS:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO subjects (user_id, name, code, color, attended_classes, total_classes) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, sub["name"], sub["code"], sub["color"], 0, 0)
+        )
+        subject_id = cursor.lastrowid
+        
+        for topic in sub["topics"]:
+            cursor.execute(
+                "INSERT INTO tasks (user_id, title, subject_id, priority, due_date, completed, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (user_id, topic, subject_id, 'Medium', None, 0, None)
+            )
 
 def create_user(username, name, password_hash):
     try:
@@ -113,8 +195,13 @@ def create_user(username, name, password_hash):
                 "INSERT INTO users (username, name, password_hash, last_active_date) VALUES (?, ?, ?, ?)",
                 (username, name, password_hash, None)
             )
+            user_id = cursor.lastrowid
+            
+            # Auto-seed core subjects and tasks
+            seed_core_subjects(conn, user_id)
+            
             conn.commit()
-            return cursor.lastrowid
+            return user_id
     except sqlite3.IntegrityError:
         return None
 
