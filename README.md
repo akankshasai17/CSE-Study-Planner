@@ -182,3 +182,31 @@ npm --prefix frontend run build
    - You do not need to run `Activate.ps1`; invoke binaries directly using `.\.venv\Scripts\python.exe`, `.\.venv\Scripts\pip.exe`, `.\.venv\Scripts\uvicorn.exe`, and `.\.venv\Scripts\pytest.exe`.
 3. **Port 8000 or 5173 already in use**:
    - Check running processes with `Get-NetTCPConnection -LocalPort 8000,5173` and stop any old process before restarting.
+
+---
+
+## 7. Deploying to Render and Vercel
+
+The repository includes a Render Blueprint at `render.yaml` and Vercel SPA routing in `frontend/vercel.json`.
+
+### Deploy the backend to Render
+
+1. In Render, create a new **Blueprint** and select this GitHub repository. Render reads `render.yaml` from the repository root.
+2. When prompted for `FRONTEND_ORIGIN`, enter a temporary value such as `https://example.com`. Replace it with the Vercel production origin after deploying the frontend.
+3. The Blueprint creates a Python web service with a persistent disk mounted at `/var/data`; the SQLite database is stored on that disk so it survives deploys and restarts. The persistent disk requires Render's paid Starter plan.
+4. After the service is live, verify `https://<your-render-service>.onrender.com/api/health` and copy the service's base URL.
+
+### Deploy the frontend to Vercel
+
+1. Import this GitHub repository as a new Vercel project.
+2. Set **Root Directory** to `frontend`.
+3. Add the environment variable `VITE_API_BASE_URL` with the Render service base URL, for example `https://cse-study-planner-api.onrender.com` (do not add `/api`).
+4. Deploy the project. Vercel uses `frontend/vercel.json` to serve the app correctly on direct navigation to client-side routes.
+
+### Connect the deployments
+
+1. Copy the Vercel production origin (for example, `https://cse-study-planner.vercel.app`, without a trailing slash).
+2. In Render, open the backend service's environment settings and set `FRONTEND_ORIGIN` to that origin. Multiple origins can be comma-separated.
+3. Save the environment change and let Render redeploy. Register an account and test the app against the deployed API.
+
+Keep the generated Render `SECRET_KEY` private. Do not commit production environment values to the repository.

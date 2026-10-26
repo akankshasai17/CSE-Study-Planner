@@ -40,7 +40,7 @@ app = FastAPI(
 )
 
 allowed_origins = [
-    settings.FRONTEND_ORIGIN,
+    *(origin.strip() for origin in settings.FRONTEND_ORIGIN.split(",") if origin.strip()),
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:4173",
