@@ -2,12 +2,12 @@ import axios from 'axios';
 
 // Use relative URL so Vite proxy directs to backend at http://localhost:5000/api
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: import.meta.env.VITE_API_URL || '/api',
   withCredentials: true, // Enables secure HttpOnly cookies for authentication
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 15000,
+  timeout: 60000,
 });
 
 // Request Interceptor: Attach JWT Bearer Token if present in localStorage as fallback
