@@ -218,4 +218,5 @@ node backend/test_api.js
 ```
 All tests run natively in Node.js without any Python or ML dependencies.
 #   C S E - S t u d y - P l a n n e r  
+ #   C S E - S t u d y - P l a n n e r  
  
